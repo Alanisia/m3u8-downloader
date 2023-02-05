@@ -7,6 +7,9 @@ edition = "2021"
 
 [dependencies]
 eframe = "0.20.1"
-tokio = { version = "1", features = ["full"] }
-reqwest = { version = "0.11", features = ["multipart"] }
-async-trait = "0.1.64"
+rfd = "0.11.0"
+ehttp = "0.2.0"
+poll-promise = "0.2.0"
+# tokio = { version = "1", features = ["full"] }
+# reqwest = { version = "0.11", features = ["blocking", "multipart"] }
+# async-trait = "0.1.64"
