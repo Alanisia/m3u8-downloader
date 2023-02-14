@@ -3,12 +3,105 @@
  */
 package alanisia.m3u8downloader;
 
-public class App {
-    public String getGreeting() {
-        return "Hello World!";
+import com.google.common.util.concurrent.AtomicDouble;
+import javafx.application.Application;
+import javafx.geometry.Insets;
+import javafx.geometry.Pos;
+import javafx.scene.Node;
+import javafx.scene.Scene;
+import javafx.scene.control.Button;
+import javafx.scene.control.Label;
+import javafx.scene.control.ProgressBar;
+import javafx.scene.control.TextField;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.VBox;
+import javafx.stage.DirectoryChooser;
+import javafx.stage.FileChooser;
+import javafx.stage.Stage;
+
+import java.io.File;
+import java.util.ArrayList;
+import java.util.List;
+
+public class App extends Application {
+    private final Input mInput = new Input();
+    private final M3U8Handler mM3U8Handler = new M3U8Handler(mInput);
+
+    private Stage mPrimaryStage;
+    private Button mBtnPickFile, mBtnPickDir, mBtnDownload;
+    private Label mLM3u8FilePath, mLSavePath;
+    private ProgressBar mPbDownloadProgress;
+
+    @Override
+    public void start(Stage primaryStage) {
+        mPrimaryStage = primaryStage;
+
+        Scene scene = new Scene(initView());
+        primaryStage.setScene(scene);
+        primaryStage.setTitle("m3u8 Downloader");
+        primaryStage.setResizable(false);
+        primaryStage.show();
+    }
+
+    private VBox initView() {
+        TextField mTfHostUrl = new TextField();
+        mBtnPickFile = new Button("Pick file");
+        mBtnPickDir = new Button("Pick directory");
+        mLM3u8FilePath = new Label("");
+        mLSavePath = new Label("");
+
+        AtomicDouble vBoxHeight = new AtomicDouble();
+        VBox vBox = new VBox();
+        vBox.setAlignment(Pos.BASELINE_CENTER);
+        vBox.setMinWidth(600.0f);
+
+        List<HBox> hBoxes = new ArrayList<>();
+        hBoxes.add(createHBox("Host URL: ", new Node[]{mTfHostUrl}));
+        hBoxes.add(createHBox("m3u8 Path: ", new Node[]{ mBtnPickFile, mLM3u8FilePath }));
+        hBoxes.add(createHBox("Save Path: ", new Node[]{ mBtnPickDir, mLSavePath }));
+
+        mBtnDownload = new Button("Download");
+        HBox hBox = new HBox(mBtnDownload);
+        hBox.setAlignment(Pos.BASELINE_CENTER);
+        hBox.setPadding(new Insets(2, 2, 2, 2));
+        hBoxes.add(hBox);
+        hBoxes.forEach(e -> {
+            double height = e.getPadding().getTop() + e.getPadding().getBottom() + e.getHeight();
+            vBoxHeight.addAndGet(height);
+            vBox.getChildren().add(e);
+        });
+        vBox.setMinHeight(vBoxHeight.get());
+
+        addListener();
+        return vBox;
+    }
+
+    private HBox createHBox(String label, Node[] nodes) {
+        HBox hBox = new HBox();
+        hBox.setAlignment(Pos.BASELINE_LEFT);
+        hBox.setPadding(new Insets(2, 2, 2, 2));
+        hBox.getChildren().add(new Label(label));
+        for (Node node : nodes) {
+            hBox.getChildren().add(node);
+        }
+        return hBox;
+    }
+
+    private void addListener() {
+        mBtnPickFile.setOnMouseClicked(e -> {
+            File m3u8File = new FileChooser().showOpenDialog(mPrimaryStage);
+            mInput.setM3u8File(m3u8File);
+            mLM3u8FilePath.setText(m3u8File.getPath());
+        });
+        mBtnPickDir.setOnMouseClicked(e -> {
+            String savePath = new DirectoryChooser().showDialog(mPrimaryStage).getPath();
+            mInput.setSavePath(savePath);
+            mLSavePath.setText(savePath);
+        });
+        mBtnDownload.setOnMouseClicked(e -> mM3U8Handler.setInput(mInput).download());
     }
 
     public static void main(String[] args) {
-        System.out.println(new App().getGreeting());
+        launch(args);
     }
 }
