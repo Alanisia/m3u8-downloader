@@ -40,6 +40,7 @@ public class M3U8Handler {
             FutureTask<Integer> futureTask = new FutureTask<>(() -> {
                 return (snippetDownloaded / snippets.size()) * 100;
             });
+            new Thread(futureTask).start();
         } catch (IOException e) {
             LOGGER.error(e.getMessage());
         }
