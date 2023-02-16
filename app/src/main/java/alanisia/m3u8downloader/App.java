@@ -15,7 +15,9 @@ import javafx.stage.Stage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
+import java.io.*;
+import java.util.Collections;
+import java.util.Enumeration;
 
 public class App extends Application {
     private static final Logger LOGGER = LoggerFactory.getLogger(App.class);
@@ -27,7 +29,7 @@ public class App extends Application {
     private final GridPane gridPane = new GridPane();
     private TextField mTfHostUrl;
     private Button mBtnPickFile, mBtnPickDir, mBtnDownload;
-    private Label mLM3u8FilePath, mLSavePath;
+    private Label mLM3u8FilePath, mLSavePath, mLDownloadProgress;
     private ProgressBar mPbDownloadProgress;
 
     @Override
@@ -50,7 +52,8 @@ public class App extends Application {
         mLM3u8FilePath = new Label("");
         mLSavePath = new Label("");
         mPbDownloadProgress = new ProgressBar();
-
+        mLDownloadProgress = new Label("0%");
+        mLDownloadProgress.setVisible(false);
 
         gridPane.setMinWidth(600.0f);
         gridPane.setPadding(new Insets(4));
@@ -75,6 +78,9 @@ public class App extends Application {
 
         mBtnDownload = new Button("Download");
         gridPane.add(mBtnDownload, 0, 3);
+        mPbDownloadProgress.setVisible(false);
+        gridPane.add(mPbDownloadProgress, 1, 3);
+        gridPane.add(mLDownloadProgress, 2, 3);
 
         addListener();
         return new Group(gridPane);
@@ -107,8 +113,24 @@ public class App extends Application {
             } else if (mInput.getSavePath() == null || mInput.getSavePath().isEmpty()) {
                 showErrorAlert("Please select a directory to save file");
             } else {
-                gridPane.add(mPbDownloadProgress, 1, 3);
-                mM3U8Handler.setInput(mInput).download();
+                mPbDownloadProgress.setVisible(true);
+                mLDownloadProgress.setVisible(true);
+                mM3U8Handler.setInput(mInput).restart();
+                mM3U8Handler.setOnRunning(event -> {
+                    double progress = event.getSource().getProgress();
+                    mLDownloadProgress.setText(progress * 100 + "%");
+                });
+                mM3U8Handler.setOnSucceeded(event -> {
+                    LOGGER.debug("Success");
+                    Enumeration<InputStream> enumeration = Collections.enumeration(mM3U8Handler.getInputStreams());
+                    try (SequenceInputStream sequenceInputStream = new SequenceInputStream(enumeration);
+                         FileOutputStream fileOutputStream = new FileOutputStream(String.format("%s/out_%d.mp4",
+                                 mInput.getSavePath(), System.currentTimeMillis()))) {
+                        fileOutputStream.write(sequenceInputStream.readAllBytes());
+                    } catch (IOException exception) {
+                        LOGGER.error(exception.getMessage());
+                    }
+                });
             }
         });
     }

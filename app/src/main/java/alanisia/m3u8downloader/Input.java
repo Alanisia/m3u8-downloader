@@ -1,7 +1,6 @@
 package alanisia.m3u8downloader;
 
 import com.google.common.base.MoreObjects;
-
 import java.io.File;
 
 public class Input {

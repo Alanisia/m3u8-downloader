@@ -1,21 +1,29 @@
 package alanisia.m3u8downloader;
 
+import javafx.concurrent.Service;
+import javafx.concurrent.Task;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.BufferedReader;
-import java.io.FileReader;
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.FutureTask;
+import java.io.*;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
-public class M3U8Handler {
+public class M3U8Handler extends Service<Void> {
     private static final Logger LOGGER = LoggerFactory.getLogger(M3U8Handler.class);
+    private final HttpClient httpClient;
+    private final List<InputStream> inputStreams = new ArrayList<>();
+    private AtomicInteger downloadedSnippetCount = new AtomicInteger(0);
+    private boolean downloadStatus = false;
     private Input input;
 
     public M3U8Handler(Input input) {
         this.input = input;
+        this.httpClient = HttpClient.newBuilder().build();
     }
 
     private List<String> resolveM3u8() throws IOException {
@@ -32,18 +40,12 @@ public class M3U8Handler {
         return m3u8UriSnippets;
     }
 
-    public void download() {
-        try {
-            List<String> snippets = resolveM3u8();
-
-            int snippetDownloaded = 0;
-            FutureTask<Integer> futureTask = new FutureTask<>(() -> {
-                return (snippetDownloaded / snippets.size()) * 100;
-            });
-            new Thread(futureTask).start();
-        } catch (IOException e) {
-            LOGGER.error(e.getMessage());
+    private URI createURI(String snippet) {
+        int len = input.getHostUrl().length();
+        if (input.getHostUrl().charAt(len - 1) == '/') {
+            input.setHostUrl(input.getHostUrl().substring(0, len - 1));
         }
+        return URI.create(String.format("%s/%s", input.getHostUrl(), snippet));
     }
 
     public M3U8Handler setInput(Input input) {
@@ -53,5 +55,46 @@ public class M3U8Handler {
 
     public Input getInput() {
         return input;
+    }
+
+    public List<InputStream> getInputStreams() {
+        return inputStreams;
+    }
+
+    public boolean getDownloadStatus() {
+        return downloadStatus;
+    }
+
+    @Override
+    protected Task<Void> createTask() {
+        return new Task<>() {
+            @Override
+            protected Void call() {
+                downloadedSnippetCount.set(0);
+                downloadStatus = true;
+                try {
+                    List<String> snippets = resolveM3u8();
+                    AtomicInteger snippetDownloaded = new AtomicInteger(0);
+                    for (int i = 0; i < snippets.size(); i++) {
+                        String e = snippets.get(i);
+                        HttpRequest request = HttpRequest.newBuilder().uri(createURI(e)).build();
+                        httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofInputStream())
+                                .thenApply(HttpResponse::body)
+                                .thenAccept(c -> {
+                                    LOGGER.debug("Download over: {}", e);
+                                    inputStreams.add(Integer.parseInt(e.substring(8, e.length() - 3)), c);
+                                    snippetDownloaded.getAndIncrement();
+                                    double progress = (double) snippetDownloaded.get() / snippets.size();
+                                    LOGGER.debug("P: {}", progress);
+
+                                });
+
+                    }
+                } catch (IOException e) {
+                    LOGGER.error(e.getMessage());
+                }
+                return null;
+            }
+        };
     }
 }
