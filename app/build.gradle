@@ -39,9 +39,21 @@ dependencies {
     implementation 'org.openjfx:javafx:19'
 }
 
+jar {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    manifest {
+        attributes 'Main-Class': 'alanisia.m3u8downloader.Main'
+    }
+    from {
+        configurations.runtimeClasspath.collect {
+            it.isDirectory() ? it : zipTree(it)
+        }
+    }
+}
+
 application {
     // Define the main class for the application.
-    mainClass = 'alanisia.m3u8downloader.App'
+    mainClass = 'alanisia.m3u8downloader.Main'
 }
 
 tasks.named('test') {

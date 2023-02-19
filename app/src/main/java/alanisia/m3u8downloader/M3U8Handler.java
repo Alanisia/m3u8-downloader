@@ -1,5 +1,6 @@
 package alanisia.m3u8downloader;
 
+import com.google.common.base.MoreObjects;
 import javafx.concurrent.Service;
 import javafx.concurrent.Task;
 import org.slf4j.Logger;
@@ -11,31 +12,30 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.*;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Pattern;
 
 public class M3U8Handler extends Service<Void> {
     private static final Logger LOGGER = LoggerFactory.getLogger(M3U8Handler.class);
     private final HttpClient httpClient;
-    private final List<InputStream> inputStreams = new ArrayList<>();
-    private AtomicInteger downloadedSnippetCount = new AtomicInteger(0);
+    private List<InputStream> inputStreams;
     private boolean downloadStatus = false;
     private Input input;
 
-    public M3U8Handler(Input input) {
-        this.input = input;
+    public M3U8Handler() {
         this.httpClient = HttpClient.newBuilder().build();
     }
 
     private List<String> resolveM3u8() throws IOException {
         BufferedReader bufferedReader = new BufferedReader(new FileReader(input.getM3u8File()));
         List<String> m3u8UriSnippets = new ArrayList<>();
+        Pattern pattern = Pattern.compile("^(?!#).+(?<=ts)$");
         String snippet;
-        int i = 1;
         while ((snippet = bufferedReader.readLine()) != null) {
-            if (i >= 7 && (i & 1) != 0) {
+            if (pattern.matcher(snippet).matches()) {
                 m3u8UriSnippets.add(snippet);
             }
-            i++;
         }
         return m3u8UriSnippets;
     }
@@ -53,16 +53,24 @@ public class M3U8Handler extends Service<Void> {
         return this;
     }
 
-    public Input getInput() {
-        return input;
-    }
-
-    public List<InputStream> getInputStreams() {
-        return inputStreams;
-    }
-
     public boolean getDownloadStatus() {
         return downloadStatus;
+    }
+
+    public void setDownloadStatus(boolean downloadStatus) {
+        this.downloadStatus = downloadStatus;
+    }
+
+    public void writeToOutputFile() {
+        Enumeration<InputStream> enumeration = Collections.enumeration(inputStreams);
+        try (SequenceInputStream sequenceInputStream = new SequenceInputStream(enumeration);
+             FileOutputStream fileOutputStream = new FileOutputStream(String.format("%s/out_%d.mp4",
+                     input.getSavePath(), System.currentTimeMillis()));
+             BufferedOutputStream bufferedOutputStream = new BufferedOutputStream(fileOutputStream)) {
+            bufferedOutputStream.write(sequenceInputStream.readAllBytes());
+        } catch (IOException exception) {
+            LOGGER.error(exception.getMessage());
+        }
     }
 
     @Override
@@ -70,31 +78,39 @@ public class M3U8Handler extends Service<Void> {
         return new Task<>() {
             @Override
             protected Void call() {
-                downloadedSnippetCount.set(0);
-                downloadStatus = true;
                 try {
                     List<String> snippets = resolveM3u8();
+                    inputStreams = Arrays.asList(new InputStream[snippets.size()]);
                     AtomicInteger snippetDownloaded = new AtomicInteger(0);
+                    CountDownLatch countDownLatch = new CountDownLatch(snippets.size());
                     for (int i = 0; i < snippets.size(); i++) {
-                        String e = snippets.get(i);
-                        HttpRequest request = HttpRequest.newBuilder().uri(createURI(e)).build();
+                        SnippetWithIndex e = new SnippetWithIndex(snippets.get(i), i);
+                        HttpRequest request = HttpRequest.newBuilder().uri(createURI(e.snippet)).build();
                         httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofInputStream())
                                 .thenApply(HttpResponse::body)
                                 .thenAccept(c -> {
-                                    LOGGER.debug("Download over: {}", e);
-                                    inputStreams.add(Integer.parseInt(e.substring(8, e.length() - 3)), c);
-                                    snippetDownloaded.getAndIncrement();
+                                    inputStreams.set(e.index, c);
+                                    snippetDownloaded.incrementAndGet();
                                     double progress = (double) snippetDownloaded.get() / snippets.size();
-                                    LOGGER.debug("P: {}", progress);
-
+                                    updateProgress(progress, 1);
+                                    updateMessage(String.format("%.2f%%", progress * 100));
+                                    countDownLatch.countDown();
                                 });
-
                     }
-                } catch (IOException e) {
+                    countDownLatch.await();
+                } catch (InterruptedException | IOException e) {
                     LOGGER.error(e.getMessage());
                 }
                 return null;
             }
         };
+    }
+
+    private record SnippetWithIndex(String snippet, int index) {
+        @Override
+        public String toString() {
+            return MoreObjects.toStringHelper(this)
+                    .add("snippet", snippet).add("index", index).toString();
+        }
     }
 }
