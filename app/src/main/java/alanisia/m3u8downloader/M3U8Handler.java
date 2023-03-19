@@ -13,11 +13,15 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.*;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 
 public class M3U8Handler extends Service<Void> {
     private static final Logger LOGGER = LoggerFactory.getLogger(M3U8Handler.class);
+    private final Executor executor = Executors.newFixedThreadPool(16);
     private final HttpClient httpClient;
     private List<InputStream> inputStreams;
     private boolean downloadStatus = false;
@@ -45,6 +49,9 @@ public class M3U8Handler extends Service<Void> {
         if (input.getHostUrl().charAt(len - 1) == '/') {
             input.setHostUrl(input.getHostUrl().substring(0, len - 1));
         }
+        if (snippet.charAt(0) == '/') {
+            snippet = snippet.substring(1);
+        }
         return URI.create(String.format("%s/%s", input.getHostUrl(), snippet));
     }
 
@@ -61,7 +68,7 @@ public class M3U8Handler extends Service<Void> {
         this.downloadStatus = downloadStatus;
     }
 
-    public void writeToOutputFile() {
+    public void writeToOutputFile() throws Exception {
         Enumeration<InputStream> enumeration = Collections.enumeration(inputStreams);
         try (SequenceInputStream sequenceInputStream = new SequenceInputStream(enumeration);
              FileOutputStream fileOutputStream = new FileOutputStream(String.format("%s/out_%d.mp4",
@@ -69,7 +76,8 @@ public class M3U8Handler extends Service<Void> {
              BufferedOutputStream bufferedOutputStream = new BufferedOutputStream(fileOutputStream)) {
             bufferedOutputStream.write(sequenceInputStream.readAllBytes());
         } catch (IOException exception) {
-            LOGGER.error(exception.getMessage());
+            LOGGER.error(exception.getMessage(), exception);
+            throw exception;
         }
     }
 
@@ -86,16 +94,20 @@ public class M3U8Handler extends Service<Void> {
                     for (int i = 0; i < snippets.size(); i++) {
                         SnippetWithIndex e = new SnippetWithIndex(snippets.get(i), i);
                         HttpRequest request = HttpRequest.newBuilder().uri(createURI(e.snippet)).build();
-                        httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofInputStream())
-                                .thenApply(HttpResponse::body)
-                                .thenAccept(c -> {
-                                    inputStreams.set(e.index, c);
-                                    snippetDownloaded.incrementAndGet();
-                                    double progress = (double) snippetDownloaded.get() / snippets.size();
-                                    updateProgress(progress, 1);
-                                    updateMessage(String.format("%.2f%%", progress * 100));
-                                    countDownLatch.countDown();
-                                });
+                        executor.execute(() -> {
+                            try {
+                                InputStream inputStream = httpClient
+                                        .send(request, HttpResponse.BodyHandlers.ofInputStream()).body();
+                                inputStreams.set(e.index, inputStream);
+                                snippetDownloaded.incrementAndGet();
+                                double progress = (double) snippetDownloaded.get() / snippets.size();
+                                updateProgress(progress, 1);
+                                updateMessage(String.format("%.2f%%", progress * 100));
+                                countDownLatch.countDown();
+                            } catch (IOException | InterruptedException ex) {
+                                LOGGER.error("{}", ex.getMessage(), ex);
+                            }
+                        });
                     }
                     countDownLatch.await();
                 } catch (InterruptedException | IOException e) {

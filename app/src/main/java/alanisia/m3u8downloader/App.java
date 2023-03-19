@@ -136,13 +136,15 @@ public class App extends Application {
                         try {
                             if (task.get() == 1) {
                                 showAlert("Success", Alert.AlertType.CONFIRMATION);
-                                mPbDownloadProgress.setVisible(false);
-                                mTaDownloadProgress.setVisible(false);
-                                mM3U8Handler.setDownloadStatus(false);
                                 LOGGER.debug("Success");
                             }
                         } catch (InterruptedException | ExecutionException ex) {
                             LOGGER.error(ex.getMessage());
+                            showAlert(ex.getMessage(), Alert.AlertType.ERROR);
+                        } finally {
+                            mPbDownloadProgress.setVisible(false);
+                            mTaDownloadProgress.setVisible(false);
+                            mM3U8Handler.setDownloadStatus(false);
                         }
                     });
                     mM3U8Handler.setInput(mInput).restart();
